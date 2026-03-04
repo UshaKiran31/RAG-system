@@ -1,0 +1,31 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.so
+.env
+.env.*
+.venv/
+venv/
+env/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.log
+*.db
+*.sqlite3
+*.zip
+RAG system/backend/.venv/
+RAG system/**/__pycache__/
+RAG system/backend/logs/
+RAG system/backend/data/
+RAG system/backend/dbv1/
+RAG system/backend/dbv2/
+RAG system/data/
+RAG system/backend/chunks_export.json
+RAG system/backend/rag_results.json
+RAG system/backend/error.txt
+RAG system/frontend/node_modules/
+RAG system/frontend/dist/
+RAG system/frontend/.eslintcache
