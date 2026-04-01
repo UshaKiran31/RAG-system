@@ -8,12 +8,10 @@ def _embedding():
 
 def create_vector_store(documents, persist_directory="dbv1/chroma_db"):
     os.makedirs(persist_directory, exist_ok=True)
-    return Chroma.from_documents(
-        documents=documents,
-        embedding=_embedding(),
-        persist_directory=persist_directory,
-        collection_metadata={"hnsw:space": "cosine"},
-    )
+    store = load_vector_store(persist_directory=persist_directory)
+    if documents:
+        store.add_documents(documents)
+    return store
 
 def load_vector_store(persist_directory="dbv1/chroma_db"):
     os.makedirs(persist_directory, exist_ok=True)

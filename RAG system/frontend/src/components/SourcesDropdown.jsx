@@ -17,6 +17,8 @@ export function SourcesDropdown({ sources = [] }) {
       file_name: s.file_name || s.filename || 'Unknown',
       page: s.page ?? s.page_number ?? null,
       chunk: s.chunk ?? s.chunk_id ?? null,
+      score: s.score ?? null,
+      timestamp: s.timestamp ?? null,
       text: s.text || '',
       images: Array.isArray(s.images) ? s.images : Array.isArray(s.images_base64) ? s.images_base64.map(b64 => `data:image/png;base64,${b64}`) : [],
       tables: Array.isArray(s.tables) ? s.tables : Array.isArray(s.tables_html) ? s.tables_html : [],
@@ -110,7 +112,13 @@ export function SourcesDropdown({ sources = [] }) {
                   {s.page != null ? <>Page {s.page}</> : null}
                   {s.page != null && s.chunk != null ? ' • ' : null}
                   {s.chunk != null ? <>Chunk {s.chunk}</> : null}
+                  {s.timestamp != null ? <> 🕐 {s.timestamp}</> : null}
                 </div>
+                {s.score != null && (
+                  <div className="srcScore" title="Cosine similarity score">
+                    {Math.round(s.score * 100)}%
+                  </div>
+                )}
               </div>
               <div className="srcChevron">
                 <svg

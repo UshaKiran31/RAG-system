@@ -16,6 +16,12 @@ export function ProjectWorkspace({ id }) {
   const [chatModalOpen, setChatModalOpen] = useState(false)
   const [editingChat, setEditingChat] = useState(null)
 
+  // Resizing state
+  const [sidebarWidth, setSidebarWidth] = useState(280)
+  const [kbWidth, setKbWidth] = useState(320)
+  const [isResizingLeft, setIsResizingLeft] = useState(false)
+  const [isResizingRight, setIsResizingRight] = useState(false)
+
   useEffect(() => {
     if (id) {
       fetchProject()
@@ -23,6 +29,36 @@ export function ProjectWorkspace({ id }) {
       fetchDocuments()
     }
   }, [id])
+
+  useEffect(() => {
+    const handleMouseMove = (e) => {
+      if (isResizingLeft) {
+        const newWidth = Math.max(200, Math.min(600, e.clientX))
+        setSidebarWidth(newWidth)
+        document.body.style.cursor = 'col-resize'
+      } else if (isResizingRight) {
+        const newWidth = Math.max(240, Math.min(600, window.innerWidth - e.clientX))
+        setKbWidth(newWidth)
+        document.body.style.cursor = 'col-resize'
+      }
+    }
+
+    const handleMouseUp = () => {
+      setIsResizingLeft(false)
+      setIsResizingRight(false)
+      document.body.style.cursor = 'default'
+    }
+
+    if (isResizingLeft || isResizingRight) {
+      window.addEventListener('mousemove', handleMouseMove)
+      window.addEventListener('mouseup', handleMouseUp)
+    }
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [isResizingLeft, isResizingRight])
 
   const fetchProject = async () => {
     try {
@@ -119,8 +155,13 @@ export function ProjectWorkspace({ id }) {
     collapsedLeft && collapsedRight ? 'bothCollapsed' : ''
   ].join(' ').trim()
 
+  const workspaceStyle = {
+    '--sidebar-width': collapsedLeft ? '64px' : `${sidebarWidth}px`,
+    '--kb-width': collapsedRight ? '64px' : `${kbWidth}px`
+  }
+
   return (
-    <div className={wsClass}>
+    <div className={wsClass} style={workspaceStyle}>
       <SidebarConversations
         projectTitle={projectTitle}
         projectSubtitle={projectSubtitle}
@@ -132,7 +173,16 @@ export function ProjectWorkspace({ id }) {
         onDeleteChat={deleteChat}
         collapsed={collapsedLeft}
         onToggleCollapse={() => setCollapsedLeft(v => !v)}
+        docCount={documents.length}
       />
+      
+      {!collapsedLeft && (
+        <div 
+          className={`resizeHandle resizeHandleLeft ${isResizingLeft ? 'isResizing' : ''}`} 
+          onMouseDown={() => setIsResizingLeft(true)}
+        />
+      )}
+
       <div className="workspaceCenter">
         {activeChat ? (
           <ChatWindow
@@ -142,17 +192,15 @@ export function ProjectWorkspace({ id }) {
             subtitle={projectTitle}
             onNewChat={newChat}
             documents={documents}
+            setDocuments={setDocuments}
           />
         ) : (
           <>
             <div className="projPageHeader">
-              <div>
-                <div className="projTitle">{projectTitle}</div>
-                <div className="projSubtitle">{projectSubtitle}</div>
-              </div>
+              
               
             </div>
-            <div className="sectionCaption">Conversations</div>
+            
             <div className="emptyState">
               <div className="emptyIcon">
                 <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -172,6 +220,14 @@ export function ProjectWorkspace({ id }) {
           </>
         )}
       </div>
+
+      {!collapsedRight && (
+        <div 
+          className={`resizeHandle resizeHandleRight ${isResizingRight ? 'isResizing' : ''}`} 
+          onMouseDown={() => setIsResizingRight(true)}
+        />
+      )}
+
       <KnowledgeBasePanel
         projectId={id}
         documents={documents}

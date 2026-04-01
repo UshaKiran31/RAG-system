@@ -8,9 +8,32 @@ export function ProcessingPipelineModal({ open, onClose, document, projectId }) 
   const [selectedChunk, setSelectedChunk] = useState(null);
   const [chunkFilter, setChunkFilter] = useState('All');
   const [chunkQuery, setChunkQuery] = useState('');
+  const [tabularData, setTabularData] = useState(null);
+  const [tabularSearch, setTabularSearch] = useState('');
+  const [tabularSort, setTabularSort] = useState({ key: null, dir: 'asc' });
   const dialogRef = useRef(null);
 
-  const tabs = [
+  const isTabular = metrics?.partitioning?.rows !== undefined;
+  const isAudio = metrics?.partitioning?.segments !== undefined;
+  const isImage = metrics?.partitioning?.width !== undefined;
+
+  const tabs = isAudio ? [
+    { id: 'queued', label: 'Queued' },
+    { id: 'partitioning', label: 'Transcription' },
+    { id: 'chunking', label: 'Chunking' },
+    { id: 'vectorization', label: 'Vectorization' },
+    { id: 'view', label: 'View Chunks' },
+  ] : isImage ? [
+    { id: 'queued', label: 'Queued' },
+    { id: 'partitioning', label: 'OCR' },
+    { id: 'vectorization', label: 'Vectorization' },
+    { id: 'view', label: 'View Chunks' },
+  ] : isTabular ? [
+    { id: 'queued', label: 'Queued' },
+    { id: 'partitioning', label: 'Data Analysis' },
+    
+    { id: 'view_data', label: 'View Data' }
+  ] : [
     { id: 'queued', label: 'Queued' },
     { id: 'partitioning', label: 'Partitioning' },
     { id: 'chunking', label: 'Chunking' },
@@ -18,6 +41,20 @@ export function ProcessingPipelineModal({ open, onClose, document, projectId }) 
     { id: 'vectorization', label: 'Vectorization & Storage' },
     { id: 'view', label: 'View Chunks' }
   ];
+
+  useEffect(() => {
+    if (isTabular && activeTab !== 'queued' && activeTab !== 'partitioning' && activeTab !== 'tabular_info' && activeTab !== 'view_data') {
+      setActiveTab('partitioning');
+    }
+  }, [isTabular, activeTab]);
+
+  const fetchTabularData = useCallback(async () => {
+    if (!document?.id) return;
+    try {
+      const res = await api.get(`/projects/${projectId}/documents/${document.id}/tabular-data`);
+      setTabularData(res.data);
+    } catch (_) {}
+  }, [document, projectId]);
 
   const fetchChunks = useCallback(async () => {
     if (!document?.id) return;
@@ -73,9 +110,18 @@ export function ProcessingPipelineModal({ open, onClose, document, projectId }) 
         setMetrics(null);
         setChunks([]);
         setSelectedChunk(null);
+        setTabularData(null);
+        setTabularSearch('');
+        setTabularSort({ key: null, dir: 'asc' });
       }, 0);
     }
   }, [open, activeTab, metrics?.chunking?.status, fetchChunks, fetchMetrics]);
+
+  useEffect(() => {
+    if (open && activeTab === 'view_data' && !tabularData) {
+      fetchTabularData();
+    }
+  }, [open, activeTab, tabularData, fetchTabularData]);
 
   if (!open) return null;
 
@@ -109,52 +155,130 @@ export function ProcessingPipelineModal({ open, onClose, document, projectId }) 
                  <div className="spinnerLarge" />
                </div>
             )}
-            <div className="pipelineStepTitle">Partitioning</div>
-            <div className="pipelineStepDesc">Processing and extracting text, images, and tables</div>
+            <div className="pipelineStepTitle">{isTabular ? 'Data Analysis' : isAudio ? 'Transcription' : isImage ? 'OCR' : 'Partitioning'}</div>
+            <div className="pipelineStepDesc">
+              {isTabular
+                ? 'Extracting schema, column names, and row counts from tabular data'
+                : isAudio
+                ? 'Using ffmpeg + Whisper to transcribe audio with timestamps'
+                : isImage
+                ? 'Extracting text from image using pytesseract OCR'
+                : 'Processing and extracting text, images, and tables'}
+            </div>
             
             {isPartCompleted ? (
               <>
-                <div className="elementsGrid">
-                  <div className="elementsHeader">📊 Elements Discovered</div>
-                  <div className="elementsRow">
-                    <div className="elementBox">
-                      <span className="elementLabel">Text sections</span>
-                      <span className="elementValue">{partData.text_sections || 0}</span>
+                {isTabular ? (
+                  <div className="elementsGrid">
+                    <div className="elementsHeader">📊 Tabular Metadata Extracted</div>
+                    <div className="elementsRow">
+                      <div className="elementBox">
+                        <span className="elementLabel">Rows</span>
+                        <span className="elementValue">{partData.rows}</span>
+                      </div>
+                      <div className="elementBox">
+                        <span className="elementLabel">Columns</span>
+                        <span className="elementValue">{partData.columns}</span>
+                      </div>
                     </div>
-                    <div className="elementBox">
-                      <span className="elementLabel">Tables</span>
-                      <span className="elementValue">{partData.tables || 0}</span>
-                    </div>
-                  </div>
-                  <div className="elementsRow">
-                    <div className="elementBox">
-                      <span className="elementLabel">Images</span>
-                      <span className="elementValue">{partData.images || 0}</span>
-                    </div>
-                    <div className="elementBox">
-                      <span className="elementLabel">Titles/Headers</span>
-                      <span className="elementValue">{partData.titles_headers || 0}</span>
-                    </div>
-                  </div>
-                  <div className="elementsRow">
-                    <div className="elementBox">
-                      <span className="elementLabel">Other elements</span>
-                      <span className="elementValue">{partData.other_elements || 0}</span>
+                    <div className="elementsRow">
+                      <div className="elementBox" style={{ flex: 1 }}>
+                        <span className="elementLabel">Column Names</span>
+                        <span className="elementValue" style={{ fontSize: '11px', whiteSpace: 'normal', height: 'auto', maxHeight: '60px', overflowY: 'auto' }}>
+                          {(partData.column_names || []).join(', ')}
+                        </span>
+                      </div>
                     </div>
                   </div>
-                </div>
+                ) : isAudio ? (
+                  <div className="elementsGrid">
+                    <div className="elementsHeader">🎙️ Transcription Complete</div>
+                    <div className="elementsRow">
+                      <div className="elementBox">
+                        <span className="elementLabel">Segments</span>
+                        <span className="elementValue">{partData.segments}</span>
+                      </div>
+                      <div className="elementBox">
+                        <span className="elementLabel">Duration</span>
+                        <span className="elementValue">{partData.duration_seconds}s</span>
+                      </div>
+                    </div>
+                    <div className="elementsRow">
+                      <div className="elementBox" style={{ flex: 1 }}>
+                        <span className="elementLabel">Characters transcribed</span>
+                        <span className="elementValue">{partData.characters?.toLocaleString()}</span>
+                      </div>
+                    </div>
+                  </div>
+                ) : isImage ? (
+                  <div className="elementsGrid">
+                    <div className="elementsHeader">🖼️ OCR Complete</div>
+                    <div className="elementsRow">
+                      <div className="elementBox">
+                        <span className="elementLabel">Width</span>
+                        <span className="elementValue">{partData.width}px</span>
+                      </div>
+                      <div className="elementBox">
+                        <span className="elementLabel">Height</span>
+                        <span className="elementValue">{partData.height}px</span>
+                      </div>
+                    </div>
+                    <div className="elementsRow">
+                      <div className="elementBox" style={{ flex: 1 }}>
+                        <span className="elementLabel">Characters extracted</span>
+                        <span className="elementValue">{partData.characters?.toLocaleString() || 0}</span>
+                      </div>
+                      <div className="elementBox">
+                        <span className="elementLabel">Text found</span>
+                        <span className="elementValue">{partData.has_text ? '✓ Yes' : '— No'}</span>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="elementsGrid">
+                    <div className="elementsHeader">📊 Elements Discovered</div>
+                    <div className="elementsRow">
+                      <div className="elementBox">
+                        <span className="elementLabel">Text sections</span>
+                        <span className="elementValue">{partData.text_sections || 0}</span>
+                      </div>
+                      <div className="elementBox">
+                        <span className="elementLabel">Tables</span>
+                        <span className="elementValue">{partData.tables || 0}</span>
+                      </div>
+                    </div>
+                    <div className="elementsRow">
+                      <div className="elementBox">
+                        <span className="elementLabel">Images</span>
+                        <span className="elementValue">{partData.images || 0}</span>
+                      </div>
+                      <div className="elementBox">
+                        <span className="elementLabel">Titles/Headers</span>
+                        <span className="elementValue">{partData.titles_headers || 0}</span>
+                      </div>
+                    </div>
+                    <div className="elementsRow">
+                      <div className="elementBox">
+                        <span className="elementLabel">Other elements</span>
+                        <span className="elementValue">{partData.other_elements || 0}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
                 <div className="pipelineStepStatusBadge success">
                   ✓ Step completed successfully
                 </div>
               </>
             ) : (
               <div className="pipelineStepStatusBadge processing">
-                <div className="spinnerSmall" /> Processing...
+                <div className="spinnerSmall" /> {isAudio ? 'Transcribing...' : isImage ? 'Running OCR...' : 'Processing...'}
               </div>
             )}
           </div>
         );
       }
+
+      
 
       case 'chunking': {
         const chunkStatus = metrics?.chunking?.status;
@@ -168,27 +292,42 @@ export function ProcessingPipelineModal({ open, onClose, document, projectId }) 
             
             {isChunkCompleted ? (
               <>
-                <div className="chunkingResultsBox">
-                  <div className="resultsTitle">Chunking Results</div>
-                  <div className="resultsMain">
-                    <div className="resultItem">
-                      <div className="resultValue">{chunkData.atomic_elements || 0}</div>
-                      <div className="resultLabel">atomic elements</div>
+                {chunkData.reason ? (
+                  <div className="chunkingResultsBox">
+                    
+                    <div className="resultsMain">
+                      <div className="resultItem">
+                        <div className="resultValue highlight">✓</div>
+                        <div className="resultLabel">Dataset Parsed</div>
+                      </div>
                     </div>
-                    <div className="resultArrow">→</div>
-                    <div className="resultItem">
-                      <div className="resultValue highlight">{chunkData.chunks_created || 0}</div>
-                      <div className="resultLabel">chunks created</div>
+                    <div className="chunkSummary">
+                      Standard text chunking was skipped because this file contains structured tabular data.
                     </div>
                   </div>
-                  <div className="chunkSizeInfo">
-                    <span>Average chunk size</span>
-                    <span>{chunkData.average_chunk_size_chars || 0} characters</span>
+                ) : (
+                  <div className="chunkingResultsBox">
+                    <div className="resultsTitle">Chunking Results</div>
+                    <div className="resultsMain">
+                      <div className="resultItem">
+                        <div className="resultValue">{chunkData.atomic_elements || 0}</div>
+                        <div className="resultLabel">atomic elements</div>
+                      </div>
+                      <div className="resultArrow">→</div>
+                      <div className="resultItem">
+                        <div className="resultValue highlight">{chunkData.chunks_created || 0}</div>
+                        <div className="resultLabel">chunks created</div>
+                      </div>
+                    </div>
+                    <div className="chunkSizeInfo">
+                      <span>Average chunk size</span>
+                      <span>{chunkData.average_chunk_size_chars || 0} characters</span>
+                    </div>
+                    <div className="chunkSummary">
+                      {chunkData.atomic_elements} atomic elements have been chunked by title to produce {chunkData.chunks_created} chunks
+                    </div>
                   </div>
-                  <div className="chunkSummary">
-                    {chunkData.atomic_elements} atomic elements have been chunked by title to produce {chunkData.chunks_created} chunks
-                  </div>
-                </div>
+                )}
                 <div className="pipelineStepStatusBadge success">
                   ✓ Step completed successfully
                 </div>
@@ -352,6 +491,80 @@ export function ProcessingPipelineModal({ open, onClose, document, projectId }) 
         );
       }
 
+      case 'view_data': {
+        if (!tabularData) {
+          return (
+            <div className="pipelineStepContent">
+              <div className="pipelineStepTitle">View Data</div>
+              <div className="pipelineStepStatusBadge processing"><div className="spinnerSmall" /> Loading...</div>
+            </div>
+          );
+        }
+        const cols = tabularData.columns || [];
+        const allRows = tabularData.records || [];
+
+        const filteredRows = tabularSearch
+          ? allRows.filter(row => cols.some(c => String(row[c] ?? '').toLowerCase().includes(tabularSearch.toLowerCase())))
+          : allRows;
+
+        const sortedRows = tabularSort.key
+          ? [...filteredRows].sort((a, b) => {
+              const av = a[tabularSort.key], bv = b[tabularSort.key];
+              if (av < bv) return tabularSort.dir === 'asc' ? -1 : 1;
+              if (av > bv) return tabularSort.dir === 'asc' ? 1 : -1;
+              return 0;
+            })
+          : filteredRows;
+
+        const handleSort = (col) => {
+          setTabularSort(prev => ({ key: col, dir: prev.key === col && prev.dir === 'asc' ? 'desc' : 'asc' }));
+        };
+
+        return (
+          <div className="viewDataContainer">
+            <div className="tabularTableControls">
+              <input
+                type="text"
+                className="tabularSearchInput"
+                placeholder="Search..."
+                value={tabularSearch}
+                onChange={e => setTabularSearch(e.target.value)}
+              />
+              <span style={{ fontSize: '11px', opacity: 0.5 }}>
+                {sortedRows.length} / {allRows.length} rows · {cols.length} cols
+              </span>
+            </div>
+            <div className="viewDataTableWrap">
+              <table className="tabularTable">
+                <thead>
+                  <tr>
+                    {cols.map(c => (
+                      <th key={c} className="tabularTh" onClick={() => handleSort(c)} style={{ cursor: 'pointer', userSelect: 'none' }}>
+                        {c}
+                        <span className="sortIcon">
+                          {tabularSort.key === c ? (tabularSort.dir === 'asc' ? ' ▲' : ' ▼') : ' ↕'}
+                        </span>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedRows.map((row, ri) => (
+                    <tr key={ri} className={ri % 2 === 0 ? 'tabularRowEven' : 'tabularRowOdd'}>
+                      {cols.map(c => (
+                        <td key={c} className="tabularTd" title={String(row[c] ?? '')}>
+                          {typeof row[c] === 'number' ? Number(row[c].toFixed(4)) : String(row[c] ?? '')}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      }
+
       default:
         return (
           <div className="pipelineStepContent">
@@ -397,7 +610,7 @@ export function ProcessingPipelineModal({ open, onClose, document, projectId }) 
         </div>
 
         <div className="pipelineMain">
-          <div className="pipelineContent">
+          <div className={`pipelineContent${activeTab === 'view_data' ? ' pipelineContentData' : ''}`}>
             {renderTabContent()}
           </div>
           <div className="pipelineInspector">
@@ -409,6 +622,12 @@ export function ProcessingPipelineModal({ open, onClose, document, projectId }) 
                     <span key={t} className={`inspectorTag ${t}`}>{t}</span>
                   ))}
                 </div>
+                {selectedChunk.metadata?.timestamp && (
+                  <div style={{ fontSize: '12px', color: '#9aa0a6', marginBottom: '8px' }}>
+                    🕐 {selectedChunk.metadata.timestamp}
+                    {selectedChunk.metadata.end != null && ` – ${Math.floor(selectedChunk.metadata.end / 60).toString().padStart(2,'0')}:${Math.floor(selectedChunk.metadata.end % 60).toString().padStart(2,'0')}`}
+                  </div>
+                )}
                 <div className="inspectorLabel">Content</div>
                 <div className="inspectorBody">{selectedChunk.content}</div>
                 {selectedChunk.image_url && (

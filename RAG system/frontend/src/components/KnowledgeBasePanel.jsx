@@ -60,6 +60,17 @@ export function KnowledgeBasePanel({ projectId, documents, setDocuments, collaps
     }
   }
 
+  const retryDoc = async (e, doc) => {
+    e.stopPropagation()
+    try {
+      await api.post(`/projects/${projectId}/documents/${doc.id}/retry`)
+      const res = await api.get(`/projects/${projectId}/documents`)
+      setDocuments(res.data || [])
+    } catch (err) {
+      console.error('Retry failed:', err)
+    }
+  }
+
   const handleDocClick = (doc) => {
     if (doc.id?.toString().startsWith('temp-')) return;
     setSelectedDoc(doc);
@@ -106,7 +117,8 @@ export function KnowledgeBasePanel({ projectId, documents, setDocuments, collaps
               </svg>
             </div>
             <div>Drag & Drop or Click to upload files</div>
-            <input type="file" multiple onChange={onDrop} style={{ display: 'none' }} />
+            <div style={{ fontSize: '11px', opacity: 0.6, marginTop: 4 }}>PDF, DOCX, CSV, XLSX, MP3, MP4, WAV, PNG, JPG…</div>
+            <input type="file" multiple accept=".pdf,.docx,.doc,.csv,.xlsx,.xls,.mp3,.mp4,.wav,.m4a,.ogg,.flac,.webm,.aac,.wma,.png,.jpg,.jpeg,.bmp,.tiff,.gif,.webp" onChange={onDrop} style={{ display: 'none' }} />
           </label>
 
           {uploadError && <div className="error-message" style={{ color: 'red', marginTop: 10 }}>{uploadError}</div>}
@@ -120,11 +132,34 @@ export function KnowledgeBasePanel({ projectId, documents, setDocuments, collaps
               >
                 <div className="fileInfo">
                   <div className="fileName">{i.name || i.filename}</div>
-                  <div className="fileMeta">{i.size || 'Unknown size'}</div>
+                  <div className="fileMeta">
+                    {i.file_type && (
+                      <span className="fileBadge" style={{
+                        background: i.file_category === 'tabular' ? '#1a3a2a'
+                          : i.file_category === 'audio' ? '#2a1a3a'
+                          : i.file_category === 'image' ? '#2a1a1a'
+                          : '#1a2a3a',
+                        color: i.file_category === 'tabular' ? '#4ade80'
+                          : i.file_category === 'audio' ? '#c084fc'
+                          : i.file_category === 'image' ? '#fb923c'
+                          : '#60a5fa'
+                      }}>
+                        {i.file_type}
+                      </span>
+                    )}
+                    <span className="fileSize">{i.size || ''}</span>
+                  </div>
                 </div>
-                <div className={`fileStatus ${i.status?.toLowerCase() === 'processing' ? 'fileStatusProcessing' : ''}`}>
+                <div className={`fileStatus ${i.status?.toLowerCase() === 'processing' ? 'fileStatusProcessing' : i.status?.toLowerCase() === 'failed' ? 'fileStatusFailed' : ''}`}>
                   {i.status || 'Completed'}
                   {i.status?.toLowerCase() === 'processing' && <span className="spinner" />}
+                  {i.status?.toLowerCase() === 'failed' && (
+                    <button
+                      className="retryBtn"
+                      onClick={(e) => retryDoc(e, i)}
+                      title="Retry processing"
+                    >↺</button>
+                  )}
                 </div>
               </div>
             ))}

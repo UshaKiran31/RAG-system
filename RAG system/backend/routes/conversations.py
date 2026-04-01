@@ -245,75 +245,84 @@ def chat_stream(
             if full:
                 s = SessionLocal()
                 try:
-                    # Save assistant message
-                    msg = Message(conversation_id=payload.conversation_id, role="assistant", content=full)
+                    # Detect tabular result
+                    is_tabular_response = full.startswith("__TABULAR__")
+                    display_content = full
+                    tabular_data = None
+                    if is_tabular_response:
+                        try:
+                            tabular_data = json.loads(full[len("__TABULAR__"):])
+                            display_content = f"[Tabular result from {tabular_data.get('source', 'file')}]"
+                        except Exception:
+                            pass
+
+                    msg = Message(conversation_id=payload.conversation_id, role="assistant", content=display_content)
                     s.add(msg)
                     s.commit()
                     s.refresh(msg)
-                    # Compute sources and persist
-                    try:
-                        if (payload.message or "").lower().strip() in ("hi", "hello", "hey", "hlo"):
-                            msg.sources_json = json.dumps({"results": [], "by_document": {}, "documents": []})
-                            s.commit()
-                            raise Exception("Skip retrieval for greeting")
-                        vec = load_project_vector_store(project_id)
-                        # Load top_k from settings (reuse logic)
-                        default_k = 3
-                        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-                        settings_path = os.path.join(base_dir, "data", "projects", str(project_id), "settings.json")
-                        if os.path.exists(settings_path):
-                            with open(settings_path, "r", encoding="utf-8") as sf:
-                                cfg = json.load(sf) or {}
-                                default_k = int(cfg.get("top_k", 3))
-                        k = max(3, default_k)
-                        retriever = vec.as_retriever(search_kwargs={"k": k})
-                        docs = retriever.invoke(payload.message)
-                        doc_rows = s.execute(select(Document).where(Document.project_id == project_id)).scalars().all()
-                        id_to_doc = {d.id: d for d in doc_rows}
-                        def parse_doc(d):
-                            md = getattr(d, "metadata", {}) or {}
-                            try:
-                                raw = md.get("original_content")
-                                parsed = {}
-                                if raw:
-                                    parsed = json.loads(raw)
-                            except Exception:
-                                parsed = {}
-                            doc_id = md.get("document_id")
-                            name = id_to_doc.get(doc_id).filename if doc_id in id_to_doc else (md.get("filename") or "Unknown")
-                            return {
-                                "document_id": doc_id,
-                                "file_name": name,
-                                "page": md.get("page_number"),
-                                "chunk_id": md.get("chunk_id"),
-                                "text": parsed.get("raw_text") or d.page_content,
-                                "tables_html": parsed.get("tables_html") or [],
-                                "images_base64": parsed.get("images_base64") or [],
-                            }
-                        grouped = {}
-                        parsed_all = []
-                        for d in docs:
-                            item = parse_doc(d)
-                            parsed_all.append(item)
-                            did = item.get("document_id")
-                            if did is not None:
-                                grouped.setdefault(did, []).append(item)
-                        if parsed_all:
-                            if len(doc_rows) == 1:
-                                fallback_name = doc_rows[0].filename
-                                for it in parsed_all:
-                                    if not it.get("file_name") or it.get("file_name") == "Unknown":
-                                        it["file_name"] = fallback_name
-                            for idx, it in enumerate(parsed_all):
-                                if it.get("chunk_id") is None:
-                                    it["chunk_id"] = idx
-                        results = parsed_all[:3]
-                        by_document = {str(k): v[:3] for k, v in grouped.items()}
-                        doc_options = [{"id": d.id, "filename": d.filename} for d in doc_rows]
-                        msg.sources_json = json.dumps({"results": results, "by_document": by_document, "documents": doc_options})
+
+                    if tabular_data:
+                        msg.sources_json = json.dumps({"tabular": tabular_data, "results": [], "by_document": {}, "documents": []})
                         s.commit()
-                    except Exception:
-                        pass
+                    else:
+                        try:
+                            if (payload.message or "").lower().strip() in ("hi", "hello", "hey", "hlo"):
+                                msg.sources_json = json.dumps({"results": [], "by_document": {}, "documents": []})
+                                s.commit()
+                                raise Exception("Skip retrieval for greeting")
+                            vec = load_project_vector_store(project_id)
+                            default_k = 3
+                            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                            settings_path = os.path.join(base_dir, "data", "projects", str(project_id), "settings.json")
+                            if os.path.exists(settings_path):
+                                with open(settings_path, "r", encoding="utf-8") as sf:
+                                    cfg = json.load(sf) or {}
+                                    default_k = int(cfg.get("top_k", 3))
+                            k = max(3, default_k)
+                            retriever = vec.as_retriever(search_kwargs={"k": k})
+                            docs = retriever.invoke(payload.message)
+                            doc_rows = s.execute(select(Document).where(Document.project_id == project_id)).scalars().all()
+                            id_to_doc = {d.id: d for d in doc_rows}
+                            def parse_doc(d):
+                                md = getattr(d, "metadata", {}) or {}
+                                try:
+                                    raw = md.get("original_content")
+                                    parsed = json.loads(raw) if raw else {}
+                                except Exception:
+                                    parsed = {}
+                                doc_id = md.get("document_id")
+                                name = id_to_doc.get(doc_id).filename if doc_id in id_to_doc else (md.get("filename") or "Unknown")
+                                return {
+                                    "document_id": doc_id, "file_name": name,
+                                    "page": md.get("page_number"), "chunk_id": md.get("chunk_id"),
+                                    "text": parsed.get("raw_text") or d.page_content,
+                                    "tables_html": parsed.get("tables_html") or [],
+                                    "images_base64": parsed.get("images_base64") or [],
+                                }
+                            grouped = {}
+                            parsed_all = []
+                            for d in docs:
+                                item = parse_doc(d)
+                                parsed_all.append(item)
+                                did = item.get("document_id")
+                                if did is not None:
+                                    grouped.setdefault(did, []).append(item)
+                            if parsed_all:
+                                if len(doc_rows) == 1:
+                                    fallback_name = doc_rows[0].filename
+                                    for it in parsed_all:
+                                        if not it.get("file_name") or it.get("file_name") == "Unknown":
+                                            it["file_name"] = fallback_name
+                                for idx, it in enumerate(parsed_all):
+                                    if it.get("chunk_id") is None:
+                                        it["chunk_id"] = idx
+                            results = parsed_all[:3]
+                            by_document = {str(k): v[:3] for k, v in grouped.items()}
+                            doc_options = [{"id": d.id, "filename": d.filename} for d in doc_rows]
+                            msg.sources_json = json.dumps({"results": results, "by_document": by_document, "documents": doc_options})
+                            s.commit()
+                        except Exception:
+                            pass
                 finally:
                     s.close()
 
@@ -358,13 +367,28 @@ def semantic_search(
     except Exception:
         default_k = 3
     k = max(3, payload.max_k or default_k)
-    retriever = vec.as_retriever(search_kwargs={"k": k})
-    docs = retriever.invoke(payload.query)
+
+    # Use similarity_search_with_score to get cosine distances, then filter by threshold
+    # Chroma with cosine space returns distance (lower = more similar), convert to similarity
+    raw_results = vec.similarity_search_with_score(payload.query, k=k)
+
+    # Chroma cosine distance: 0 = identical, 2 = opposite. Convert to similarity score 0-1.
+    # Filter out results below 0.3 similarity (distance > 1.4), keep sorted best-first
+    SIMILARITY_THRESHOLD = 0.30
+    scored_docs = []
+    for doc, dist in raw_results:
+        similarity = max(0.0, 1.0 - (dist / 2.0))
+        if similarity >= SIMILARITY_THRESHOLD:
+            scored_docs.append((doc, similarity))
+    # Sort best score first
+    scored_docs.sort(key=lambda x: x[1], reverse=True)
+    docs = [doc for doc, _ in scored_docs]
+    scores = {id(doc): score for doc, score in scored_docs}
 
     doc_rows = db.execute(select(Document).where(Document.project_id == project_id)).scalars().all()
     id_to_doc = {d.id: d for d in doc_rows}
 
-    def parse_doc(d) -> TypingDict[str, Any]:
+    def parse_doc(d, score=0.0) -> TypingDict[str, Any]:
         md = getattr(d, "metadata", {}) or {}
         try:
             raw = md.get("original_content")
@@ -380,6 +404,8 @@ def semantic_search(
             "file_name": name,
             "page": md.get("page_number"),
             "chunk_id": md.get("chunk_id"),
+            "score": round(score, 4),
+            "timestamp": md.get("timestamp"),
             "text": parsed.get("raw_text") or d.page_content,
             "tables_html": parsed.get("tables_html") or [],
             "images_base64": parsed.get("images_base64") or [],
@@ -388,7 +414,7 @@ def semantic_search(
     grouped: TypingDict[int, TypingList[TypingDict[str, Any]]] = {}
     parsed_all: TypingList[TypingDict[str, Any]] = []
     for d in docs:
-        item = parse_doc(d)
+        item = parse_doc(d, scores.get(id(d), 0.0))
         parsed_all.append(item)
         did = item.get("document_id")
         if did is not None:
@@ -410,8 +436,8 @@ def semantic_search(
     else:
         filtered = parsed_all
 
-    results = filtered[:3]
-    by_document = {str(k): v[:3] for k, v in grouped.items()}
+    results = filtered
+    by_document = {str(k): v for k, v in grouped.items()}
     doc_options = [{"id": d.id, "filename": d.filename} for d in doc_rows]
 
     return {"results": results, "by_document": by_document, "documents": doc_options}

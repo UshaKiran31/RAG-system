@@ -43,11 +43,11 @@ def summarise_chunks(chunks, project_id: int = None, document_id: int = None, fi
         doc = Document(
             page_content=enhanced,
             metadata={
-                "project_id": project_id,
-                "document_id": document_id,
+                "project_id": project_id if project_id is not None else -1,
+                "document_id": document_id if document_id is not None else -1,
+                "source": filename if filename else "Unknown",
+                "page": page_number if page_number is not None else 1,
                 "chunk_id": i,
-                "page_number": page_number,
-                "filename": filename,
                 "original_content": json.dumps(
                     {
                         "raw_text": content["text"],
